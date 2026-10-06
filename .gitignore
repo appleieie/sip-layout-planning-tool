@@ -1,0 +1,5 @@
+資料測試/
+.venv/
+__pycache__/
+*.pyc
+.vscode/
