@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Die 2D Viewer MVP</title>
+  <title>Die / SiP 2D Viewer</title>
   <link rel="stylesheet" href="./styles.css">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -11,8 +11,8 @@
   <div class="app-shell">
     <aside class="sidebar">
       <div>
-        <h1>Die 2D Viewer</h1>
-        <p class="subtitle">MVP：Excel 匯入、2D 顯示、直角旋轉、等比例縮放、JSON 匯出/載入</p>
+        <h1>Die / SiP 2D Viewer</h1>
+        <p class="subtitle">單晶片檢視與多晶片 SiP 佈局規劃：Excel 匯入、拖拉對齊、打線繪圖、JSON 匯出/載入</p>
       </div>
 
       <section class="panel">
@@ -50,6 +50,34 @@
         <p class="hint">若 Excel 未提供 `diename`、`diesize_x`、`diesize_y`，系統會以檔名與 Pad 外接範圍推估，並可在此手動修正。</p>
       </section>
 
+      <section class="panel" id="sipPanel" style="display:none">
+        <h2>SiP 參數</h2>
+        <div class="field-grid">
+          <label>
+            作用中 Die（拖拉/旋轉目標）
+            <select id="activeDieSelect"></select>
+          </label>
+          <label>
+            D2 對齊 D1 偏移 X (um)
+            <input id="die2OffsetXInput" type="number" step="1" value="0">
+          </label>
+          <label>
+            D2 對齊 D1 偏移 Y (um)
+            <input id="die2OffsetYInput" type="number" step="1" value="0">
+          </label>
+          <label>
+            SiP Size X (um)
+            <input id="sipSizeXInput" type="number" min="0" step="1">
+          </label>
+          <label>
+            SiP Size Y (um)
+            <input id="sipSizeYInput" type="number" min="0" step="1">
+          </label>
+        </div>
+        <p class="hint">點選「作用中 Die」後可用旋轉按鈕旋轉該晶片。晶片與 SiP 外框均可直接在畫面上拖拉移動。預設晶片中心對齊。</p>
+        <dl class="summary-list" id="dieListSummary"></dl>
+      </section>
+
       <section class="panel">
         <h2>視圖操作</h2>
         <div class="button-group compact">
@@ -68,6 +96,12 @@
           <button id="fontDownButton" type="button">字A-</button>
           <button id="fontResetButton" type="button" class="secondary">字重設</button>
           <span id="fontScaleValue" class="badge">100%</span>
+        </div>
+        <div class="button-group compact top-gap">
+          <button id="tooltipFontUpButton" type="button">框A+</button>
+          <button id="tooltipFontDownButton" type="button">框A-</button>
+          <span class="badge">資訊框</span>
+          <span id="tooltipFontScaleValue" class="badge">140%</span>
         </div>
       </section>
 
@@ -92,6 +126,11 @@
         <span>座標原點：左下角</span>
         <span>單位：um</span>
         <span>繪圖：等比例縮放</span>
+        <span style="color:#0ea5e9">● 同 Die 互打線</span>
+        <span style="color:#f97316">● 跨 Die 互打線</span>
+        <span style="color:#16a34a">■ GND</span>
+        <span style="color:#2563eb">■ IO 外接腳位</span>
+        <span style="color:#dc2626">紅字：同一 IO 共接點</span>
       </div>
       <canvas id="dieCanvas" width="1200" height="860"></canvas>
     </main>

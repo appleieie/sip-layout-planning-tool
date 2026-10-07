@@ -36,6 +36,22 @@ def infer_die_size_from_pads(pads: list[dict]) -> dict:
 
 
 def build_die_asset(die_name: str, die_size_x: float, die_size_y: float, pads: list[dict]) -> dict:
+    pad_items = []
+    for pad in pads:
+        item = {
+            "label": str(pad["label"]),
+            "name": str(pad.get("name", "")),
+            "x": round3(pad["x"]),
+            "y": round3(pad["y"]),
+            "width": round3(pad["width"]),
+            "height": round3(pad["height"]),
+        }
+        if pad.get("wirebond") is not None and str(pad["wirebond"]).strip() != "":
+            wb = pad["wirebond"]
+            if isinstance(wb, float) and wb.is_integer():
+                wb = int(wb)
+            item["wirebond"] = str(wb).strip()
+        pad_items.append(item)
     return {
         "format_version": "3.0",
         "unit": "um",
@@ -46,17 +62,7 @@ def build_die_asset(die_name: str, die_size_x: float, die_size_y: float, pads: l
                 "y": round3(die_size_y),
             },
         },
-        "pads": [
-            {
-                "label": str(pad["label"]),
-                "name": str(pad.get("name", "")),
-                "x": round3(pad["x"]),
-                "y": round3(pad["y"]),
-                "width": round3(pad["width"]),
-                "height": round3(pad["height"]),
-            }
-            for pad in pads
-        ],
+        "pads": pad_items,
     }
 
 
@@ -244,14 +250,17 @@ def parse_rows_as_meta_header(rows: list[list], fallback_name: str):
         label = row[index_by_key["label"]] if index_by_key["label"] < len(row) else None
         if label is None or str(label).strip() == "":
             continue
-        pads.append({
+        pad = {
             "label": label,
             "name": row[index_by_key["name"]] if "name" in index_by_key and index_by_key["name"] < len(row) else "",
             "x": parse_number(row[index_by_key["x"]], "x"),
             "y": parse_number(row[index_by_key["y"]], "y"),
             "width": parse_number(row[index_by_key["width"]], "width"),
             "height": parse_number(row[index_by_key["height"]], "height"),
-        })
+        }
+        if "wirebond" in index_by_key and index_by_key["wirebond"] < len(row):
+            pad["wirebond"] = row[index_by_key["wirebond"]]
+        pads.append(pad)
 
     if not pads:
         raise ValueError("meta-header 格式 Excel 中找不到有效 Pad 資料。")
@@ -271,17 +280,58 @@ def parse_rows_as_meta_header(rows: list[list], fallback_name: str):
 
 def parse_workbook_bytes(payload: bytes, file_name: str) -> dict:
     workbook = load_workbook(BytesIO(payload), data_only=True)
-    worksheet = workbook[workbook.sheetnames[0]]
-    rows = [list(row) for row in worksheet.iter_rows(values_only=True)]
     fallback_name = normalize_die_name(file_name)
-    result = (
-        parse_rows_as_meta_header(rows, fallback_name)
-        or parse_rows_as_standard(rows, fallback_name)
-        or parse_rows_as_grouped_sample(rows, fallback_name)
-    )
-    if result is None:
-        raise ValueError("無法辨識 Excel 欄位格式。支援格式：\n1. meta-header（前幾列為 diename/diesize，再接 label/x/y/width/height 標頭）\n2. 標準格式（單列標頭含 diename 欄）\n3. GBB898die 範例格式（雙列標頭）")
-    return result
+
+    def parse_sheet(sheet_name: str):
+        worksheet = workbook[sheet_name]
+        rows = [list(row) for row in worksheet.iter_rows(values_only=True)]
+        return (
+            parse_rows_as_meta_header(rows, sheet_name)
+            or parse_rows_as_standard(rows, sheet_name)
+            or parse_rows_as_grouped_sample(rows, sheet_name)
+        )
+
+    # 多工作表：每個 sheet 視為一顆晶片，組成 SiP asset
+    parsed_sheets = []
+    for sheet_name in workbook.sheetnames:
+        try:
+            result = parse_sheet(sheet_name)
+        except ValueError:
+            result = None
+        if result is not None:
+            parsed_sheets.append((sheet_name, result))
+
+    if len(parsed_sheets) >= 2:
+        dies = []
+        warnings = []
+        for sheet_name, result in parsed_sheets:
+            asset = result["dieAsset"]
+            dies.append({
+                "sheet": sheet_name,
+                "diename": asset["die"]["diename"],
+                "diesize": asset["die"]["diesize"],
+                "pads": asset["pads"],
+            })
+            if result.get("warning"):
+                warnings.append(f"{sheet_name}: {result['warning']}")
+        return {
+            "sipAsset": {
+                "format_version": "4.0",
+                "unit": "um",
+                "dies": dies,
+            },
+            "warning": "\n".join(warnings),
+            "parser": "multi-sheet",
+        }
+
+    if len(parsed_sheets) == 1:
+        result = parsed_sheets[0][1]
+        # 單 sheet 仍用檔名作為 fallback die name
+        if result["dieAsset"]["die"]["diename"] in workbook.sheetnames:
+            result["dieAsset"]["die"]["diename"] = fallback_name
+        return result
+
+    raise ValueError("無法辨識 Excel 欄位格式。支援格式：\n1. meta-header（前幾列為 diename/diesize，再接 label/x/y/width/height 標頭）\n2. 標準格式（單列標頭含 diename 欄）\n3. GBB898die 範例格式（雙列標頭）\n多工作表檔案：每個 sheet 各自符合上述格式即可組成 SiP。")
 
 
 class DieRequestHandler(SimpleHTTPRequestHandler):
